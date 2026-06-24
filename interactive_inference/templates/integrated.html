@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Integrated Dashboard - Alpamayo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        /* Custom scrollbar for better look */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden text-sm">
+    
+    <!-- Global Loading Overlay to block interactions -->
+    <div id="globalOverlay" class="hidden fixed inset-0 z-[100] bg-transparent cursor-wait"></div>
+    
+    <!-- Column 1: Explorer List -->
+    <div class="w-80 bg-white border-r border-gray-200 flex flex-col h-full shadow-sm z-10 flex-shrink-0">
+        <div class="flex border-b border-gray-200">
+            <button id="tab-clips" class="flex-1 py-3 text-xs font-bold text-gray-500 tracking-wider bg-white border-b-2 border-blue-500" onclick="switchTab('clips')">DEMO CLIPS</button>
+            <button id="tab-history" class="flex-1 py-3 text-xs font-bold text-gray-500 tracking-wider bg-gray-50 border-b-2 border-transparent hover:bg-gray-100" onclick="switchTab('history')">HISTORY</button>
+            <a href="/clip_viewer" class="flex-1 py-3 text-xs font-bold text-gray-500 tracking-wider bg-gray-50 border-b-2 border-transparent hover:bg-gray-100 text-center" title="Clip Viewer">🎬 VIEWER</a>
+        </div>
+        <div id="view-clips" class="overflow-y-auto flex-grow p-2 space-y-1">
+            {% if clips %}
+                {% for clip in clips %}
+                <div class="p-2 rounded hover:bg-blue-100 cursor-pointer transition-colors" onclick="selectClip('{{ clip.clip_id }}', {{ clip.t0_relative }}, '{{ clip.nav_text }}', {{ clip.distance_m }})">
+                    <div class="font-mono text-[11px] text-blue-700 truncate" title="{{ clip.clip_id }}">{{ clip.clip_id }}</div>
+                    <div class="text-xs font-semibold text-gray-700 mt-1 truncate" title="{{ clip.nav_text }}">{{ clip.nav_text }}</div>
+                    <div class="text-[10px] text-gray-500 flex justify-between mt-0.5">
+                        <span>{{ clip.distance_m }}m</span>
+                        <span>t0: {{ clip.t0_relative }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-xs text-gray-400 italic p-4 text-center">No clips found</div>
+            {% endif %}
+        </div>
+        <div id="view-history" class="hidden overflow-y-auto flex-grow p-2 space-y-4">
+            <div id="history-loading" class="text-xs text-gray-500 text-center p-4">Loading history...</div>
+            <div id="history-content" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- Column 2: Data Video & Inference Results -->
+    <div class="flex-1 flex flex-col h-full overflow-y-auto bg-gray-100 p-4 gap-4">
+        
+        <!-- Row 1: Data Video -->
+        <div class="flex-none min-h-[65vh] bg-white rounded shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+            <div class="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <h3 class="font-bold text-gray-700">Video Player</h3>
+                <div class="text-xs text-gray-500 font-mono" id="videoStatus">Ready</div>
+            </div>
+            
+            <div class="flex-1 bg-black flex flex-col items-center justify-center relative overflow-hidden" id="videoContainer">
+                <div id="videoPlaceholder" class="text-gray-500 text-center">
+                    <p>Load video data to see the 3x3 camera grid.</p>
+                </div>
+                
+                <div id="videoGrid" class="hidden w-full max-w-5xl mx-auto grid grid-cols-3 gap-1 p-1 self-center">
+                    <!-- Row 1 -->
+                    <div class="bg-transparent"></div>
+                    <div class="relative bg-black rounded overflow-hidden shadow-sm"><img id="cam_front_tele" class="w-full h-auto block"><span class="absolute bottom-1 left-1 text-[8px] text-white bg-black/70 px-1 rounded-tr">Front T</span></div>
+                    <div class="bg-transparent"></div>
+                    
+                    <!-- Row 2 -->
+                    <div class="relative bg-black rounded overflow-hidden shadow-sm"><img id="cam_cross_left" class="w-full h-auto block"><span class="absolute bottom-1 left-1 text-[8px] text-white bg-black/70 px-1 rounded-tr">Cross L</span></div>
+                    <div class="relative bg-black rounded overflow-hidden shadow-sm"><img id="cam_front_wide" class="w-full h-auto block"><span class="absolute bottom-1 left-1 text-[8px] text-white bg-black/70 px-1 rounded-tr">Front W</span></div>
+                    <div class="relative bg-black rounded overflow-hidden shadow-sm"><img id="cam_cross_right" class="w-full h-auto block"><span class="absolute bottom-1 left-1 text-[8px] text-white bg-black/70 px-1 rounded-tr">Cross R</span></div>
+                    
+                    <!-- Row 3 -->
+                    <div class="relative bg-black rounded overflow-hidden shadow-sm"><img id="cam_rear_left" class="w-full h-auto block"><span class="absolute bottom-1 left-1 text-[8px] text-white bg-black/70 px-1 rounded-tr">Rear L</span></div>
+                    <div class="relative bg-black rounded overflow-hidden shadow-sm"><img id="cam_rear_tele" class="w-full h-auto block"><span class="absolute bottom-1 left-1 text-[8px] text-white bg-black/70 px-1 rounded-tr">Rear T</span></div>
+                    <div class="relative bg-black rounded overflow-hidden shadow-sm"><img id="cam_rear_right" class="w-full h-auto block"><span class="absolute bottom-1 left-1 text-[8px] text-white bg-black/70 px-1 rounded-tr">Rear R</span></div>
+                </div>
+            </div>
+            
+            <div class="p-2 border-t border-gray-100 bg-gray-50 flex items-center gap-4 hidden flex-shrink-0" id="videoControls">
+                <button id="playBtn" class="px-3 py-1 bg-green-500 text-white rounded text-xs font-bold hover:bg-green-600 transition">Play</button>
+                <input type="range" id="frameSlider" min="0" max="0" value="0" class="flex-grow">
+                <span id="frameCounter" class="text-xs font-mono text-gray-600 w-16 text-right">0 / 0</span>
+            </div>
+        </div>
+
+        <!-- Row 2: Inference Result -->
+        <div class="flex-none min-h-[40vh] bg-white rounded shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+            <div class="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <h3 class="font-bold text-gray-700">Inference Results</h3>
+                <div class="text-xs text-gray-500 font-mono" id="inferenceStatus">Ready</div>
+            </div>
+            <div class="flex-1 overflow-hidden flex items-center justify-center relative" id="inferenceContainer">
+                <div id="inferencePlaceholder" class="text-gray-500 text-center">
+                    <p>Run inference to see the trajectory and reasoning.</p>
+                </div>
+                
+                <div id="inferenceResult" class="hidden w-full h-full flex gap-4 p-4">
+                    <div class="flex-1 flex items-center justify-center bg-gray-50 rounded border overflow-hidden" id="plotly-div-container">
+                        <div id="plotly-div" style="width: 100%; height: 100%; min-height: 400px;"></div>
+                    </div>
+                    <div class="w-1/3 flex flex-col bg-gray-50 p-4 rounded border overflow-y-auto">
+                        <h4 class="font-bold text-gray-700 mb-2 border-b pb-1">Chain of Thought</h4>
+                        <p id="inferenceCot" class="text-gray-600 text-sm whitespace-pre-wrap leading-relaxed"></p>
+                    </div>
+                </div>
+                
+                <div id="inferenceLoading" class="hidden absolute inset-0 bg-white/80 flex flex-col items-center justify-center z-10">
+                    <svg class="animate-spin h-8 w-8 text-blue-500 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="text-gray-700 font-bold">Running model inference...</p>
+                    <p class="text-gray-500 text-xs mt-1">(This may take 10-15 seconds)</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Column 3: Configuration -->
+    <div class="w-80 bg-white border-l border-gray-200 flex flex-col h-full shadow-sm z-10 flex-shrink-0 overflow-y-auto">
+        <div class="p-4 border-b border-gray-200 bg-gray-50">
+            <h2 class="font-bold text-gray-700">Configuration</h2>
+        </div>
+        
+        <form id="configForm" class="p-4 space-y-4" onsubmit="event.preventDefault();">
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Clip ID</label>
+                <input type="text" id="clip_id" value="ea7bbd31-b7a5-4972-8dbd-7089e6b53de4" class="w-full rounded border-gray-300 shadow-sm p-2 border font-mono text-[10px] bg-gray-50" readonly>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">t0_relative (µs)</label>
+                    <input type="number" id="t0_relative" value="4000000" class="w-full rounded border-gray-300 shadow-sm p-2 border text-xs bg-gray-50" readonly>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Distance (m)</label>
+                    <input type="number" id="distance_m" value="10.5" class="w-full rounded border-gray-300 shadow-sm p-2 border text-xs bg-gray-50" readonly>
+                </div>
+            </div>
+            
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Navigation Instruction (nav_text)</label>
+                <input type="text" id="nav_text" value="Turn right in 30m" class="w-full rounded border-gray-300 shadow-sm p-2 border text-xs">
+            </div>
+            
+            <div class="border-t border-gray-100 my-4 pt-4">
+                <h3 class="text-xs font-bold text-gray-500 mb-3 uppercase">Model Parameters</h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1">Temperature</label>
+                        <input type="number" step="0.01" id="temperature" value="0.6" class="w-full rounded border-gray-300 shadow-sm p-1.5 border text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1">Top-p</label>
+                        <input type="number" step="0.01" id="top_p" value="0.98" class="w-full rounded border-gray-300 shadow-sm p-1.5 border text-xs">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-xs text-gray-600 mb-1">Sample Runs (n)</label>
+                        <input type="number" id="num_runs" value="1" class="w-full rounded border-gray-300 shadow-sm p-1.5 border text-xs">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 mt-6 pt-4 border-t border-gray-100">
+                <button type="button" onclick="loadData()" id="btnLoadData" class="w-full bg-blue-600 text-white px-4 py-2.5 rounded font-bold hover:bg-blue-700 shadow-sm transition text-sm flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    Load Video Data
+                </button>
+                <button type="button" onclick="runInference()" id="btnRunInference" class="w-full bg-green-600 text-white px-4 py-2.5 rounded font-bold hover:bg-green-700 shadow-sm transition text-sm flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    Run Inference
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // Global State
+        let videoFrames = [];
+        let isPlaying = false;
+        let playInterval = null;
+        const preloadedImageCache = {};
+
+        // UI Selections
+        function selectClip(clipId, t0Relative, navText, distanceM) {
+            document.getElementById('clip_id').value = clipId;
+            document.getElementById('t0_relative').value = t0Relative;
+            document.getElementById('nav_text').value = navText;
+            document.getElementById('distance_m').value = distanceM || '';
+            
+            // Clear current video and inference results on clip change
+            clearVideo();
+            clearInference();
+        }
+
+        function clearVideo() {
+            document.getElementById('videoGrid').classList.add('hidden');
+            document.getElementById('videoControls').classList.add('hidden');
+            document.getElementById('videoPlaceholder').classList.remove('hidden');
+            document.getElementById('videoStatus').textContent = "Ready";
+            videoFrames = [];
+            clearInterval(playInterval);
+            isPlaying = false;
+        }
+
+        function clearInference() {
+            document.getElementById('inferenceResult').classList.add('hidden');
+            document.getElementById('inferenceLoading').classList.add('hidden');
+            document.getElementById('inferencePlaceholder').classList.remove('hidden');
+            document.getElementById('inferenceStatus').textContent = "Ready";
+        }
+
+        // --- Tabs and History ---
+        function switchTab(tab) {
+            if (tab === 'clips') {
+                document.getElementById('view-clips').classList.remove('hidden');
+                document.getElementById('view-history').classList.add('hidden');
+                document.getElementById('tab-clips').classList.replace('bg-gray-50', 'bg-white');
+                document.getElementById('tab-clips').classList.replace('border-transparent', 'border-blue-500');
+                document.getElementById('tab-history').classList.replace('bg-white', 'bg-gray-50');
+                document.getElementById('tab-history').classList.replace('border-blue-500', 'border-transparent');
+            } else {
+                document.getElementById('view-clips').classList.add('hidden');
+                document.getElementById('view-history').classList.remove('hidden');
+                document.getElementById('tab-history').classList.replace('bg-gray-50', 'bg-white');
+                document.getElementById('tab-history').classList.replace('border-transparent', 'border-blue-500');
+                document.getElementById('tab-clips').classList.replace('bg-white', 'bg-gray-50');
+                document.getElementById('tab-clips').classList.replace('border-blue-500', 'border-transparent');
+                loadHistory();
+            }
+        }
+
+        let currentObsId = null;
+
+        async function loadHistory() {
+            document.getElementById('history-loading').classList.remove('hidden');
+            document.getElementById('history-content').innerHTML = '';
+            
+            try {
+                const res = await fetch('/api/history');
+                const data = await res.json();
+                
+                document.getElementById('history-loading').classList.add('hidden');
+                
+                if(data.history && data.history.length === 0) {
+                    document.getElementById('history-content').innerHTML = '<div class="text-xs text-gray-400 italic text-center">No history found</div>';
+                    return;
+                }
+                
+                if (data.status === 'success') {
+                    let html = '';
+                    data.history.forEach(obs => {
+                        html += `
+                        <div class="border border-gray-200 rounded overflow-hidden">
+                            <div class="bg-gray-100 p-2 text-xs font-mono text-gray-700 truncate cursor-pointer select-none" onclick="document.getElementById('obs-${obs.id}').classList.toggle('hidden')">
+                                &#9662; ${obs.clip_id.substring(0,8)}... t0:${obs.t0_us}
+                            </div>
+                            <div id="obs-${obs.id}" class="bg-white p-2 space-y-2">
+                        `;
+                        
+                        obs.experiments.forEach(exp => {
+                            html += `
+                            <div class="flex items-start hover:bg-gray-50 p-1 rounded group">
+                                <label class="flex items-start space-x-2 text-xs cursor-pointer flex-grow">
+                                    <input type="checkbox" class="exp-checkbox mt-0.5" data-obs-id="${obs.id}" value="${exp.id}" onchange="onExpCheckboxChange(this)">
+                                    <div class="w-full">
+                                        <div class="font-semibold text-gray-800 break-words">${exp.nav_text}</div>
+                                        <div class="text-[10px] text-gray-500">${new Date(exp.timestamp).toLocaleString()} • ${exp.num_runs} runs</div>
+                                    </div>
+                                </label>
+                                <button type="button" class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity" onclick="deleteExperiment(${exp.id})" title="Delete experiment">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </div>
+                            `;
+                        });
+                        
+                        html += `</div></div>`;
+                    });
+                    document.getElementById('history-content').innerHTML = html;
+                } else {
+                    document.getElementById('history-content').innerHTML = `<div class="text-red-500 text-xs">Error: ${data.message || 'Unknown error'}</div>`;
+                }
+            } catch(e) {
+                document.getElementById('history-loading').innerText = 'Error loading history';
+            }
+        }
+
+        async function onExpCheckboxChange(checkbox) {
+            const obsId = checkbox.getAttribute('data-obs-id');
+            
+            if (currentObsId !== null && currentObsId !== obsId) {
+                document.querySelectorAll('.exp-checkbox').forEach(cb => {
+                    if (cb.getAttribute('data-obs-id') !== obsId) {
+                        cb.checked = false;
+                    }
+                });
+            }
+            
+            currentObsId = obsId;
+            
+            const checkedBoxes = document.querySelectorAll('.exp-checkbox:checked');
+            if (checkedBoxes.length === 0) {
+                currentObsId = null;
+                clearInference();
+                return;
+            }
+            
+            const expIds = Array.from(checkedBoxes).map(cb => cb.value).join(',');
+            
+            document.getElementById('inferencePlaceholder').classList.add('hidden');
+            document.getElementById('inferenceLoading').classList.remove('hidden');
+            document.getElementById('inferenceResult').classList.add('hidden');
+            document.getElementById('inferenceStatus').textContent = "Loading history...";
+            setGlobalLoading(true);
+            
+            try {
+                const res = await fetch('/api/experiment_results?exp_ids=' + expIds);
+                const data = await res.json();
+                
+                document.getElementById('inferenceLoading').classList.add('hidden');
+                
+                if (data.status === 'success') {
+                    document.getElementById('inferenceResult').classList.remove('hidden');
+                    document.getElementById('inferenceStatus').textContent = "Success";
+                    renderMultiPlot(data.gt_xy, data.experiments);
+                    
+                    let cotText = '';
+                    data.experiments.forEach(exp => {
+                        cotText += `--- Experiment ${exp.id} (${exp.nav_text}) ---\n`;
+                        exp.runs.forEach(run => {
+                            cotText += `Run ${run.run_index + 1}: ${run.cot}\n`;
+                        });
+                        cotText += `\n`;
+                    });
+                    document.getElementById('inferenceCot').textContent = cotText.trim() || "No CoT available";
+                } else {
+                    document.getElementById('inferencePlaceholder').classList.remove('hidden');
+                    document.getElementById('inferencePlaceholder').innerHTML = `<p class="text-red-500 font-bold">Error:</p><p class="text-red-400 text-xs mt-2">${data.message || 'Unknown error'}</p>`;
+                    document.getElementById('inferenceStatus').textContent = "Error";
+                }
+            } catch(e) {
+                console.error(e);
+                document.getElementById('inferenceLoading').classList.add('hidden');
+                document.getElementById('inferencePlaceholder').classList.remove('hidden');
+                document.getElementById('inferencePlaceholder').innerHTML = `<p class="text-red-500 font-bold">Error:</p><p class="text-red-400 text-xs mt-2">${e.message}</p>`;
+                document.getElementById('inferenceStatus').textContent = "Error";
+            } finally {
+                setGlobalLoading(false);
+            }
+        }
+
+        async function deleteExperiment(expId) {
+            if (!confirm('Are you sure you want to delete this experiment?')) return;
+            
+            try {
+                const res = await fetch('/api/experiment/' + expId, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    // Check if the deleted experiment was currently being viewed
+                    const checkedBoxes = document.querySelectorAll('.exp-checkbox:checked');
+                    for (let cb of checkedBoxes) {
+                        if (cb.value == expId) {
+                            cb.checked = false;
+                        }
+                    }
+                    onExpCheckboxChange(document.createElement('input')); // trigger update
+                    loadHistory();
+                } else {
+                    alert('Error deleting experiment: ' + data.message);
+                }
+            } catch(e) {
+                alert('Request failed: ' + e.message);
+            }
+        }
+
+        // --- Data Loading & Playback ---
+        function setGlobalLoading(isLoading) {
+            if (isLoading) {
+                document.getElementById('globalOverlay').classList.remove('hidden');
+            } else {
+                document.getElementById('globalOverlay').classList.add('hidden');
+            }
+        }
+
+        async function loadData() {
+            const btn = document.getElementById('btnLoadData');
+            const status = document.getElementById('videoStatus');
+            const clipId = document.getElementById('clip_id').value;
+            const t0Relative = parseInt(document.getElementById('t0_relative').value);
+            
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Loading...';
+            status.textContent = "Extracting frames...";
+            clearVideo();
+            setGlobalLoading(true);
+
+            try {
+                const response = await fetch('/api/data_check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        clip_id: clipId,
+                        t0_relative: t0Relative,
+                        duration_s: 5.0
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    videoFrames = data.frames;
+                    setupVideoPlayback();
+                } else {
+                    alert('Error: ' + data.message);
+                    status.textContent = "Error";
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+                status.textContent = "Failed";
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg> Load Video Data';
+                setGlobalLoading(false);
+            }
+        }
+
+        function setupVideoPlayback() {
+            document.getElementById('videoPlaceholder').classList.add('hidden');
+            document.getElementById('videoGrid').classList.remove('hidden');
+            document.getElementById('videoControls').classList.remove('hidden');
+            document.getElementById('videoStatus').textContent = `Loaded ${videoFrames.length} frames`;
+            
+            const slider = document.getElementById('frameSlider');
+            slider.max = videoFrames.length - 1;
+            slider.value = 0;
+            
+            updateFrame(0);
+            
+            slider.addEventListener('input', function() {
+                updateFrame(this.value);
+                if (isPlaying) togglePlay(); // Pause on manual scrub
+            });
+            
+            // Re-attach play button listener correctly (avoid duplicate bindings)
+            const playBtn = document.getElementById('playBtn');
+            const newPlayBtn = playBtn.cloneNode(true);
+            playBtn.parentNode.replaceChild(newPlayBtn, playBtn);
+            newPlayBtn.addEventListener('click', togglePlay);
+            
+            // Preload images into persistent cache to prevent garbage collection and lag
+            videoFrames.forEach(f => {
+                Object.values(f.cameras).forEach(src => {
+                    if (!preloadedImageCache[src]) {
+                        const img = new Image();
+                        img.src = src;
+                        preloadedImageCache[src] = img;
+                    }
+                });
+            });
+            
+            // Auto play initially
+            isPlaying = false;
+            togglePlay();
+        }
+
+        function updateFrame(idx) {
+            if (!videoFrames || videoFrames.length === 0) return;
+            const frame = videoFrames[idx];
+            document.getElementById('frameCounter').textContent = `${parseInt(idx) + 1} / ${videoFrames.length}`;
+            
+            if (frame.cameras.front_wide) document.getElementById('cam_front_wide').src = frame.cameras.front_wide;
+            if (frame.cameras.front_tele) document.getElementById('cam_front_tele').src = frame.cameras.front_tele;
+            if (frame.cameras.cross_left) document.getElementById('cam_cross_left').src = frame.cameras.cross_left;
+            if (frame.cameras.cross_right) document.getElementById('cam_cross_right').src = frame.cameras.cross_right;
+            if (frame.cameras.rear_left) document.getElementById('cam_rear_left').src = frame.cameras.rear_left;
+            if (frame.cameras.rear_tele) document.getElementById('cam_rear_tele').src = frame.cameras.rear_tele;
+            if (frame.cameras.rear_right) document.getElementById('cam_rear_right').src = frame.cameras.rear_right;
+        }
+
+        function togglePlay() {
+            const btn = document.getElementById('playBtn');
+            const slider = document.getElementById('frameSlider');
+            if (isPlaying) {
+                clearInterval(playInterval);
+                btn.textContent = 'Play';
+                btn.classList.replace('bg-red-500', 'bg-green-500');
+            } else {
+                btn.textContent = 'Pause';
+                btn.classList.replace('bg-green-500', 'bg-red-500');
+                playInterval = setInterval(() => {
+                    let nextIdx = parseInt(slider.value) + 1;
+                    if (nextIdx >= videoFrames.length) nextIdx = 0;
+                    slider.value = nextIdx;
+                    updateFrame(nextIdx);
+                }, 100);
+            }
+            isPlaying = !isPlaying;
+        }
+
+        // --- Inference ---
+        async function runInference() {
+            const btn = document.getElementById('btnRunInference');
+            const status = document.getElementById('inferenceStatus');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Inferencing...';
+            status.textContent = "Running model...";
+            
+            clearInference();
+            document.getElementById('inferencePlaceholder').classList.add('hidden');
+            document.getElementById('inferenceLoading').classList.remove('hidden');
+            setGlobalLoading(true);
+
+            try {
+                const response = await fetch('/api/inference', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        clip_id: document.getElementById('clip_id').value,
+                        t0_relative: parseInt(document.getElementById('t0_relative').value),
+                        nav_text: document.getElementById('nav_text').value,
+                        temperature: parseFloat(document.getElementById('temperature').value),
+                        top_p: parseFloat(document.getElementById('top_p').value),
+                        num_runs: parseInt(document.getElementById('num_runs').value)
+                    })
+                });
+                
+                const data = await response.json();
+                document.getElementById('inferenceLoading').classList.add('hidden');
+                
+                if (response.ok && data.status === 'success') {
+                    document.getElementById('inferenceResult').classList.remove('hidden');
+                    renderPlot(data.gt_xy, data.pred_xy, data.run_means, data.total_mean);
+                    document.getElementById('inferenceCot').textContent = data.cot;
+                    status.textContent = "Success";
+                } else {
+                    document.getElementById('inferencePlaceholder').classList.remove('hidden');
+                    document.getElementById('inferencePlaceholder').innerHTML = `<p class="text-red-500 font-bold">Error:</p><p class="text-red-400 text-xs mt-2">${data.message || 'Unknown error'}</p>`;
+                    status.textContent = "Error";
+                }
+            } catch (err) {
+                document.getElementById('inferenceLoading').classList.add('hidden');
+                document.getElementById('inferencePlaceholder').classList.remove('hidden');
+                document.getElementById('inferencePlaceholder').innerHTML = `<p class="text-red-500 font-bold">Request Failed:</p><p class="text-red-400 text-xs mt-2">${err.message}</p>`;
+                status.textContent = "Failed";
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> Run Inference';
+                setGlobalLoading(false);
+            }
+        }
+
+        // --- Plotly Rendering ---
+        function renderPlot(gt_xy, pred_xy, run_means, total_mean) {
+            const colors = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b', 
+                '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#d62728'
+            ];
+            
+            const traces = [];
+            
+            for (let runIdx = 0; runIdx < pred_xy.length; runIdx++) {
+                const runTrajs = pred_xy[runIdx];
+                const color = colors[runIdx % colors.length];
+                for (let i = 0; i < runTrajs.length; i++) {
+                    const traj = runTrajs[i];
+                    const x = traj.map(pt => pt[0]);
+                    const y = traj.map(pt => pt[1]);
+                    traces.push({
+                        x: x, y: y,
+                        mode: 'lines+markers',
+                        line: { color: color, width: 1, dash: 'dash' },
+                        marker: { size: 2 },
+                        opacity: 0.2,
+                        name: `Run #${runIdx + 1} sample`,
+                        showlegend: false,
+                        hoverinfo: 'skip',
+                        customdata: Array(x.length).fill(runIdx)
+                    });
+                }
+            }
+            
+            for (let runIdx = 0; runIdx < run_means.length; runIdx++) {
+                const runMean = run_means[runIdx];
+                const color = colors[runIdx % colors.length];
+                const x = runMean.map(pt => pt[0]);
+                const y = runMean.map(pt => pt[1]);
+                traces.push({
+                    x: x, y: y,
+                    mode: 'lines+markers',
+                    line: { color: color, width: 3, dash: 'dash' },
+                    marker: { size: 4 },
+                    opacity: 1.0,
+                    name: `Run #${runIdx + 1} Avg`,
+                    customdata: Array(x.length).fill(runIdx)
+                });
+            }
+            
+            if (total_mean && total_mean.length > 0) {
+                const x = total_mean.map(pt => pt[0]);
+                const y = total_mean.map(pt => pt[1]);
+                traces.push({
+                    x: x, y: y,
+                    mode: 'lines+markers',
+                    line: { color: 'black', width: 4, dash: 'dash' },
+                    marker: { size: 5 },
+                    name: 'All Runs Avg',
+                    customdata: Array(x.length).fill('total')
+                });
+            }
+            
+            if (gt_xy && gt_xy.length > 0) {
+                const x = gt_xy.map(pt => pt[0]);
+                const y = gt_xy.map(pt => pt[1]);
+                traces.push({
+                    x: x, y: y,
+                    mode: 'lines+markers',
+                    line: { color: 'red', width: 3, dash: 'solid' },
+                    marker: { size: 5, color: 'red' },
+                    name: 'Ground Truth',
+                    customdata: Array(x.length).fill('gt')
+                });
+            }
+            
+            const allX = traces.flatMap(t => t.x);
+            const allY = traces.flatMap(t => t.y);
+            const xMin = Math.min(...allX), xMax = Math.max(...allX);
+            const yMin = Math.min(...allY), yMax = Math.max(...allY);
+            const xCenter = (xMin + xMax) / 2;
+            const yCenter = (yMin + yMax) / 2;
+            const halfSpan = Math.max((xMax - xMin), (yMax - yMin)) / 2 * 1.1;
+            
+            const plotDiv = document.getElementById('plotly-div');
+            const containerW = plotDiv.offsetWidth || 400;
+            
+            const layout = {
+                title: 'Nav-Conditioned Trajectory Prediction',
+                height: 400,
+                width: containerW,
+                autosize: false,
+                xaxis: { title: 'x (m)', range: [xCenter - halfSpan, xCenter + halfSpan] },
+                yaxis: { title: 'y (m)', range: [yCenter - halfSpan, yCenter + halfSpan] },
+                hovermode: 'closest',
+                plot_bgcolor: '#f8fafc',
+                paper_bgcolor: '#ffffff',
+                margin: { l: 40, r: 20, t: 40, b: 40 }
+            };
+            
+            Plotly.newPlot('plotly-div', traces, layout);
+            
+            const myPlot = document.getElementById('plotly-div');
+            myPlot.on('plotly_hover', function(data) {
+                if(data.points.length > 0) {
+                    const hoveredRunIdx = data.points[0].data.customdata[0];
+                    if (hoveredRunIdx === 'gt' || hoveredRunIdx === 'total') return;
+                    
+                    const update = { opacity: [] };
+                    for(let i=0; i<myPlot.data.length; i++) {
+                        const tr = myPlot.data[i];
+                        if (tr.customdata && tr.customdata[0] === hoveredRunIdx) {
+                            if (tr.name.includes('sample')) update.opacity.push(0.5);
+                            else update.opacity.push(1.0);
+                        } else if (tr.customdata && (tr.customdata[0] === 'gt' || tr.customdata[0] === 'total')) {
+                            update.opacity.push(1.0);
+                        } else {
+                            if (tr.name.includes('sample')) update.opacity.push(0.05);
+                            else update.opacity.push(0.2);
+                        }
+                    }
+                    Plotly.restyle(myPlot, update);
+                }
+            });
+            
+            myPlot.on('plotly_unhover', function(data) {
+                const update = { opacity: [] };
+                for(let i=0; i<myPlot.data.length; i++) {
+                    const tr = myPlot.data[i];
+                    if (tr.customdata && (tr.customdata[0] === 'gt' || tr.customdata[0] === 'total')) {
+                        update.opacity.push(1.0);
+                    } else if (tr.name.includes('sample')) {
+                        update.opacity.push(0.2);
+                    } else if (tr.name.includes('Avg')) {
+                        update.opacity.push(1.0);
+                    } else {
+                        update.opacity.push(1.0);
+                    }
+                }
+                Plotly.restyle(myPlot, update);
+            });
+        }
+
+        function renderMultiPlot(gt_xy, experiments) {
+            const colors = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+            ];
+            const traces = [];
+            
+            experiments.forEach((exp, expIdx) => {
+                const color = colors[expIdx % colors.length];
+                let expMeans = [];
+                
+                exp.runs.forEach(run => {
+                    const trajs = run.pred_xy;
+                    if (!trajs || trajs.length === 0) return;
+                    
+                    for (let i = 0; i < trajs.length; i++) {
+                        const traj = trajs[i];
+                        traces.push({
+                            x: traj.map(pt => pt[0]),
+                            y: traj.map(pt => pt[1]),
+                            mode: 'lines+markers',
+                            line: { color: color, width: 1, dash: 'dash' },
+                            marker: { size: 2 },
+                            opacity: 0.2,
+                            name: `Exp ${exp.id} sample`,
+                            showlegend: false,
+                            hoverinfo: 'skip',
+                            customdata: Array(traj.length).fill(exp.id)
+                        });
+                    }
+                    
+                    const runMean = [];
+                    const len = trajs[0].length;
+                    for (let step=0; step<len; step++) {
+                        let sumX = 0, sumY = 0;
+                        for(let i=0; i<trajs.length; i++) {
+                            sumX += trajs[i][step][0];
+                            sumY += trajs[i][step][1];
+                        }
+                        runMean.push([sumX/trajs.length, sumY/trajs.length]);
+                    }
+                    expMeans.push(runMean);
+                    
+                    traces.push({
+                        x: runMean.map(pt => pt[0]),
+                        y: runMean.map(pt => pt[1]),
+                        mode: 'lines+markers',
+                        line: { color: color, width: 3, dash: 'dash' },
+                        marker: { size: 4 },
+                        opacity: 1.0,
+                        name: `Exp ${exp.id} Run Avg`,
+                        customdata: Array(runMean.length).fill(exp.id)
+                    });
+                });
+            });
+            
+            if (gt_xy && gt_xy.length > 0) {
+                const x = gt_xy.map(pt => pt[0]);
+                const y = gt_xy.map(pt => pt[1]);
+                traces.push({
+                    x: x, y: y,
+                    mode: 'lines+markers',
+                    line: { color: 'red', width: 3, dash: 'solid' },
+                    marker: { size: 5, color: 'red' },
+                    name: 'Ground Truth',
+                    customdata: Array(x.length).fill('gt')
+                });
+            }
+            
+            const allX2 = traces.flatMap(t => t.x);
+            const allY2 = traces.flatMap(t => t.y);
+            const xMin2 = Math.min(...allX2), xMax2 = Math.max(...allX2);
+            const yMin2 = Math.min(...allY2), yMax2 = Math.max(...allY2);
+            const xCenter2 = (xMin2 + xMax2) / 2;
+            const yCenter2 = (yMin2 + yMax2) / 2;
+            const halfSpan2 = Math.max((xMax2 - xMin2), (yMax2 - yMin2)) / 2 * 1.1;
+            
+            const plotDiv2 = document.getElementById('plotly-div');
+            const containerW2 = plotDiv2.offsetWidth || 400;
+            
+            const layout = {
+                title: 'Compare Multiple Experiments',
+                height: 400,
+                width: containerW2,
+                autosize: false,
+                xaxis: { title: 'x (m)', range: [xCenter2 - halfSpan2, xCenter2 + halfSpan2] },
+                yaxis: { title: 'y (m)', range: [yCenter2 - halfSpan2, yCenter2 + halfSpan2] },
+                hovermode: 'closest',
+                plot_bgcolor: '#f8fafc',
+                paper_bgcolor: '#ffffff',
+                margin: { l: 40, r: 20, t: 40, b: 40 }
+            };
+            
+            Plotly.newPlot('plotly-div', traces, layout);
+            
+            const myPlot = document.getElementById('plotly-div');
+            myPlot.on('plotly_hover', function(data) {
+                if(data.points.length > 0) {
+                    const hoveredExpId = data.points[0].data.customdata[0];
+                    if (hoveredExpId === 'gt') return;
+                    
+                    const update = { opacity: [] };
+                    for(let i=0; i<myPlot.data.length; i++) {
+                        const tr = myPlot.data[i];
+                        if (tr.customdata && tr.customdata[0] === hoveredExpId) {
+                            if (tr.name.includes('sample')) update.opacity.push(0.5);
+                            else update.opacity.push(1.0);
+                        } else if (tr.customdata && tr.customdata[0] === 'gt') {
+                            update.opacity.push(1.0);
+                        } else {
+                            if (tr.name.includes('sample')) update.opacity.push(0.05);
+                            else update.opacity.push(0.2);
+                        }
+                    }
+                    Plotly.restyle(myPlot, update);
+                }
+            });
+            
+            myPlot.on('plotly_unhover', function(data) {
+                const update = { opacity: [] };
+                for(let i=0; i<myPlot.data.length; i++) {
+                    const tr = myPlot.data[i];
+                    if (tr.customdata && tr.customdata[0] === 'gt') {
+                        update.opacity.push(1.0);
+                    } else if (tr.name.includes('sample')) {
+                        update.opacity.push(0.2);
+                    } else if (tr.name.includes('Avg')) {
+                        update.opacity.push(1.0);
+                    } else {
+                        update.opacity.push(1.0);
+                    }
+                }
+                Plotly.restyle(myPlot, update);
+            });
+        }
+    </script>
+</body>
+</html>

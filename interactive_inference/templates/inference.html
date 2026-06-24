@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Inference - Alpamayo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script>
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('result').classList.add('hidden');
+        }
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('result').classList.remove('hidden');
+        }
+    </script>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden">
+    
+    <!-- Sidebar (VSCode Explorer Style) -->
+    <div class="w-80 bg-white border-r border-gray-200 flex flex-col h-full shadow-sm z-10 flex-shrink-0">
+        <div class="flex border-b border-gray-200">
+            <button id="tab-clips" class="flex-1 py-3 text-xs font-bold text-gray-500 tracking-wider bg-white border-b-2 border-blue-500" onclick="switchTab('clips')">DEMO CLIPS</button>
+            <button id="tab-history" class="flex-1 py-3 text-xs font-bold text-gray-500 tracking-wider bg-gray-50 border-b-2 border-transparent hover:bg-gray-100" onclick="switchTab('history')">HISTORY</button>
+        </div>
+        
+        <div id="view-clips" class="overflow-y-auto flex-grow p-2 space-y-1">
+            {% if clips %}
+                {% for clip in clips %}
+                <div class="p-2 rounded hover:bg-blue-100 cursor-pointer transition-colors" onclick="selectClip('{{ clip.clip_id }}', {{ clip.t0_relative }}, '{{ clip.nav_text }}')">
+                    <div class="font-mono text-[11px] text-blue-700 truncate" title="{{ clip.clip_id }}">{{ clip.clip_id }}</div>
+                    <div class="text-xs font-semibold text-gray-700 mt-1 truncate">{{ clip.nav_text }}</div>
+                    <div class="text-[10px] text-gray-500 flex justify-between mt-0.5">
+                        <span>{{ clip.distance_m }}m</span>
+                        <span>t0: {{ clip.t0_relative }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-xs text-gray-400 italic p-4 text-center">No clips found</div>
+            {% endif %}
+        </div>
+        
+        <div id="view-history" class="hidden overflow-y-auto flex-grow p-2 space-y-4">
+            <div id="history-loading" class="text-xs text-gray-500 text-center p-4">Loading history...</div>
+            <div id="history-content" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 overflow-y-auto p-8 bg-gray-50">
+        <div class="max-w-[1200px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        <!-- Left Column: Form -->
+        <div class="bg-white p-8 rounded shadow-md h-fit">
+            <div class="mb-4">
+                <a href="/" class="text-blue-500 hover:underline">&larr; Back to Home</a>
+            </div>
+            <h1 class="text-3xl font-bold mb-6 text-gray-800">Inference Configuration</h1>
+            
+            <form method="post" action="/inference" class="space-y-4" onsubmit="showLoading()">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Clip ID</label>
+                        <input type="text" name="clip_id" value="{{ clip_id | default('ea7bbd31-b7a5-4972-8dbd-7089e6b53de4') }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">t0_relative (microsec)</label>
+                        <input type="number" name="t0_relative" value="{{ t0_relative | default(4000000) }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border" required>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Navigation Instruction (nav_text)</label>
+                    <input type="text" name="nav_text" value="{{ nav_text | default('Turn right in 30m') }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border" required>
+                </div>
+                
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Temperature</label>
+                        <input type="number" step="0.01" name="temperature" value="{{ temperature | default(0.6) }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Top-p</label>
+                        <input type="number" step="0.01" name="top_p" value="{{ top_p | default(0.98) }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Runs (n)</label>
+                        <input type="number" name="num_runs" value="{{ num_runs | default(1) }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border">
+                    </div>
+                </div>
+                
+                <button type="submit" class="w-full bg-green-600 text-white px-4 py-3 mt-4 rounded font-bold hover:bg-green-700 shadow-md transition">Run Inference</button>
+            </form>
+        </div>
+
+        <!-- Right Column: Result -->
+        <div class="bg-white p-8 rounded shadow-md">
+            <h2 class="text-2xl font-bold mb-6 text-gray-800">Output Visualization</h2>
+            
+            <div id="loading" class="hidden text-center py-20">
+                <svg class="animate-spin h-10 w-10 text-green-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="text-gray-600 font-medium">Running model inference. This may take a moment...</p>
+            </div>
+
+            <div id="result">
+                {% if error %}
+                <div class="p-4 bg-red-100 text-red-700 rounded border border-red-300 break-words">
+                    <strong>Error:</strong> {{ error }}
+                </div>
+                {% endif %}
+
+                {% if success %}
+                <div class="space-y-6">
+                    <div class="p-4 bg-gray-50 border border-gray-200 rounded text-sm">
+                        <strong class="text-gray-700 block mb-1">Chain of Causation:</strong>
+                        <p class="whitespace-pre-wrap text-gray-600 font-mono text-xs">{{ cot }}</p>
+                    </div>
+                    
+                    <div class="border border-gray-200 rounded p-2 bg-white">
+                        <div id="plotly-div" style="width: 100%; height: 600px;"></div>
+                    </div>
+                </div>
+                {% elif not error %}
+                <div class="text-center py-20 text-gray-400">
+                    <p>Enter parameters on the left and run inference to see the results here.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        </div>
+    </div>
+
+    <script>
+        function selectClip(clipId, t0Relative, navText) {
+            document.querySelector('input[name="clip_id"]').value = clipId;
+            document.querySelector('input[name="t0_relative"]').value = t0Relative;
+            if (navText) {
+                document.querySelector('input[name="nav_text"]').value = navText;
+            }
+            const btn = document.querySelector('button[type="submit"]');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = 'Selected! Ready to run';
+            setTimeout(() => { btn.innerHTML = originalText; }, 1500);
+        }
+
+        function switchTab(tab) {
+            if (tab === 'clips') {
+                document.getElementById('view-clips').classList.remove('hidden');
+                document.getElementById('view-history').classList.add('hidden');
+                document.getElementById('tab-clips').classList.replace('bg-gray-50', 'bg-white');
+                document.getElementById('tab-clips').classList.replace('border-transparent', 'border-blue-500');
+                document.getElementById('tab-history').classList.replace('bg-white', 'bg-gray-50');
+                document.getElementById('tab-history').classList.replace('border-blue-500', 'border-transparent');
+            } else {
+                document.getElementById('view-clips').classList.add('hidden');
+                document.getElementById('view-history').classList.remove('hidden');
+                document.getElementById('tab-history').classList.replace('bg-gray-50', 'bg-white');
+                document.getElementById('tab-history').classList.replace('border-transparent', 'border-blue-500');
+                document.getElementById('tab-clips').classList.replace('bg-white', 'bg-gray-50');
+                document.getElementById('tab-clips').classList.replace('border-blue-500', 'border-transparent');
+                loadHistory();
+            }
+        }
+        
+        let currentObsId = null;
+        
+        async function loadHistory() {
+            document.getElementById('history-loading').classList.remove('hidden');
+            document.getElementById('history-content').innerHTML = '';
+            
+            try {
+                const res = await fetch('/api/history');
+                const data = await res.json();
+                
+                document.getElementById('history-loading').classList.add('hidden');
+                
+                if(data.history.length === 0) {
+                    document.getElementById('history-content').innerHTML = '<div class="text-xs text-gray-400 italic text-center">No history found</div>';
+                    return;
+                }
+                
+                let html = '';
+                data.history.forEach(obs => {
+                    html += `
+                    <div class="border border-gray-200 rounded overflow-hidden">
+                        <div class="bg-gray-100 p-2 text-xs font-mono text-gray-700 truncate cursor-pointer select-none" onclick="document.getElementById('obs-${obs.id}').classList.toggle('hidden')">
+                            &#9662; ${obs.clip_id.substring(0,8)}... t0:${obs.t0_us}
+                        </div>
+                        <div id="obs-${obs.id}" class="bg-white p-2 space-y-2">
+                    `;
+                    
+                    obs.experiments.forEach(exp => {
+                        html += `
+                        <label class="flex items-start space-x-2 text-xs cursor-pointer hover:bg-gray-50 p-1 rounded">
+                            <input type="checkbox" class="exp-checkbox mt-0.5" data-obs-id="${obs.id}" value="${exp.id}" onchange="onExpCheckboxChange(this)">
+                            <div class="w-full">
+                                <div class="font-semibold text-gray-800 break-words">${exp.nav_text}</div>
+                                <div class="text-[10px] text-gray-500">${new Date(exp.timestamp).toLocaleString()} • ${exp.num_runs} runs</div>
+                            </div>
+                        </label>
+                        `;
+                    });
+                    
+                    html += `</div></div>`;
+                });
+                
+                document.getElementById('history-content').innerHTML = html;
+            } catch(e) {
+                document.getElementById('history-loading').innerText = 'Error loading history';
+            }
+        }
+        
+        async function onExpCheckboxChange(checkbox) {
+            const obsId = checkbox.getAttribute('data-obs-id');
+            
+            if (currentObsId !== null && currentObsId !== obsId) {
+                document.querySelectorAll('.exp-checkbox').forEach(cb => {
+                    if (cb.getAttribute('data-obs-id') !== obsId) {
+                        cb.checked = false;
+                    }
+                });
+            }
+            
+            currentObsId = obsId;
+            
+            const checkedBoxes = document.querySelectorAll('.exp-checkbox:checked');
+            if (checkedBoxes.length === 0) {
+                currentObsId = null;
+                return;
+            }
+            
+            const expIds = Array.from(checkedBoxes).map(cb => cb.value).join(',');
+            showLoading();
+            
+            try {
+                const res = await fetch('/api/experiment_results?exp_ids=' + expIds);
+                const data = await res.json();
+                hideLoading();
+                
+                if (data.status === 'success') {
+                    renderMultiPlot(data.gt_xy, data.experiments);
+                }
+            } catch(e) {
+                console.error(e);
+                hideLoading();
+            }
+        }
+        
+        function renderMultiPlot(gt_xy, experiments) {
+            document.getElementById('result').innerHTML = '<div class="border border-gray-200 rounded p-2 bg-white"><div id="plotly-div" style="width: 100%; height: 600px;"></div></div>';
+            
+            const colors = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+            ];
+            const traces = [];
+            
+            experiments.forEach((exp, expIdx) => {
+                const color = colors[expIdx % colors.length];
+                let expMeans = [];
+                
+                exp.runs.forEach(run => {
+                    const trajs = run.pred_xy;
+                    if (!trajs || trajs.length === 0) return;
+                    
+                    for (let i = 0; i < trajs.length; i++) {
+                        const traj = trajs[i];
+                        traces.push({
+                            x: traj.map(pt => pt[0]),
+                            y: traj.map(pt => pt[1]),
+                            mode: 'lines',
+                            line: { color: color, width: 1, dash: 'dash' },
+                            opacity: 0.2,
+                            name: `Exp ${exp.id} sample`,
+                            showlegend: false,
+                            hoverinfo: 'skip',
+                            customdata: Array(traj.length).fill(exp.id)
+                        });
+                    }
+                    
+                    const runMean = [];
+                    const len = trajs[0].length;
+                    for (let step=0; step<len; step++) {
+                        let sumX = 0, sumY = 0;
+                        for(let i=0; i<trajs.length; i++) {
+                            sumX += trajs[i][step][0];
+                            sumY += trajs[i][step][1];
+                        }
+                        runMean.push([sumX/trajs.length, sumY/trajs.length]);
+                    }
+                    expMeans.push(runMean);
+                    
+                    traces.push({
+                        x: runMean.map(pt => pt[0]),
+                        y: runMean.map(pt => pt[1]),
+                        mode: 'lines',
+                        line: { color: color, width: 2, dash: 'dot' },
+                        opacity: 0.5,
+                        name: `Exp ${exp.id} Run Avg`,
+                        showlegend: false,
+                        customdata: Array(runMean.length).fill(exp.id)
+                    });
+                });
+                
+                if (expMeans.length > 0) {
+                    const expTotalMean = [];
+                    const len = expMeans[0].length;
+                    for (let step=0; step<len; step++) {
+                        let sumX = 0, sumY = 0;
+                        for(let i=0; i<expMeans.length; i++) {
+                            sumX += expMeans[i][step][0];
+                            sumY += expMeans[i][step][1];
+                        }
+                        expTotalMean.push([sumX/expMeans.length, sumY/expMeans.length]);
+                    }
+                    traces.push({
+                        x: expTotalMean.map(pt => pt[0]),
+                        y: expTotalMean.map(pt => pt[1]),
+                        mode: 'lines',
+                        line: { color: color, width: 4, dash: 'dash' },
+                        name: exp.nav_text,
+                        customdata: Array(expTotalMean.length).fill(exp.id)
+                    });
+                }
+            });
+            
+            if (gt_xy && gt_xy.length > 0) {
+                traces.push({
+                    x: gt_xy.map(pt => pt[0]),
+                    y: gt_xy.map(pt => pt[1]),
+                    mode: 'lines',
+                    line: { color: 'red', width: 3, dash: 'solid' },
+                    name: 'Ground Truth',
+                    customdata: Array(gt_xy.length).fill('gt')
+                });
+            }
+            
+            const layout = {
+                title: 'Multi-Experiment Comparison',
+                xaxis: { title: 'x (m)', scaleanchor: 'y', scaleratio: 1 },
+                yaxis: { title: 'y (m)' },
+                hovermode: 'closest',
+                plot_bgcolor: '#f8fafc',
+                paper_bgcolor: '#ffffff'
+            };
+            
+            Plotly.newPlot('plotly-div', traces, layout);
+            
+            const myPlot = document.getElementById('plotly-div');
+            myPlot.on('plotly_hover', function(data) {
+                if(data.points.length > 0) {
+                    const hoveredExpId = data.points[0].data.customdata[0];
+                    if (hoveredExpId === 'gt') return;
+                    
+                    const update = { opacity: [] };
+                    for(let i=0; i<myPlot.data.length; i++) {
+                        const tr = myPlot.data[i];
+                        const trExpId = tr.customdata[0];
+                        if (trExpId === hoveredExpId || trExpId === 'gt') {
+                            if (tr.name.includes('sample')) update.opacity.push(0.3);
+                            else if (tr.name.includes('Run Avg')) update.opacity.push(0.7);
+                            else update.opacity.push(1.0);
+                        } else {
+                            update.opacity.push(0.02);
+                        }
+                    }
+                    Plotly.restyle(myPlot, update);
+                }
+            });
+            
+            myPlot.on('plotly_unhover', function(data) {
+                const update = { opacity: [] };
+                for(let i=0; i<myPlot.data.length; i++) {
+                    const tr = myPlot.data[i];
+                    if (tr.name.includes('sample')) update.opacity.push(0.2);
+                    else if (tr.name.includes('Run Avg')) update.opacity.push(0.5);
+                    else update.opacity.push(1.0);
+                }
+                Plotly.restyle(myPlot, update);
+            });
+        }
+    </script>
+
+    {% if success %}
+    <script>
+        const pred_xy = {{ pred_xy_json | safe }};
+        const gt_xy = {{ gt_xy_json | safe }};
+        const run_means = {{ run_means_json | safe }};
+        const total_mean = {{ total_mean_json | safe }};
+        
+        const colors = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b', 
+            '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#d62728'
+        ];
+        
+        const traces = [];
+        
+        for (let runIdx = 0; runIdx < pred_xy.length; runIdx++) {
+            const runTrajs = pred_xy[runIdx];
+            const color = colors[runIdx % colors.length];
+            for (let i = 0; i < runTrajs.length; i++) {
+                const traj = runTrajs[i];
+                const x = traj.map(pt => pt[0]);
+                const y = traj.map(pt => pt[1]);
+                traces.push({
+                    x: x, y: y,
+                    mode: 'lines',
+                    line: { color: color, width: 1, dash: 'dash' },
+                    opacity: 0.2,
+                    name: `Run #${runIdx + 1} sample`,
+                    showlegend: false,
+                    hoverinfo: 'skip',
+                    customdata: Array(x.length).fill(runIdx)
+                });
+            }
+        }
+        
+        for (let runIdx = 0; runIdx < run_means.length; runIdx++) {
+            const runMean = run_means[runIdx];
+            const color = colors[runIdx % colors.length];
+            const x = runMean.map(pt => pt[0]);
+            const y = runMean.map(pt => pt[1]);
+            traces.push({
+                x: x, y: y,
+                mode: 'lines',
+                line: { color: color, width: 3, dash: 'dash' },
+                opacity: 1.0,
+                name: `Run #${runIdx + 1} Avg`,
+                customdata: Array(x.length).fill(runIdx)
+            });
+        }
+        
+        if (total_mean && total_mean.length > 0) {
+            const x = total_mean.map(pt => pt[0]);
+            const y = total_mean.map(pt => pt[1]);
+            traces.push({
+                x: x, y: y,
+                mode: 'lines',
+                line: { color: 'black', width: 4, dash: 'dash' },
+                name: 'All Runs Avg',
+                customdata: Array(x.length).fill('total')
+            });
+        }
+        
+        if (gt_xy && gt_xy.length > 0) {
+            const x = gt_xy.map(pt => pt[0]);
+            const y = gt_xy.map(pt => pt[1]);
+            traces.push({
+                x: x, y: y,
+                mode: 'lines',
+                line: { color: 'red', width: 3, dash: 'solid' },
+                name: 'Ground Truth',
+                customdata: Array(x.length).fill('gt')
+            });
+        }
+        
+        const layout = {
+            title: 'Nav-Conditioned Trajectory Prediction',
+            xaxis: { title: 'x (m)', scaleanchor: 'y', scaleratio: 1 },
+            yaxis: { title: 'y (m)' },
+            hovermode: 'closest',
+            plot_bgcolor: '#f8fafc',
+            paper_bgcolor: '#ffffff'
+        };
+        
+        Plotly.newPlot('plotly-div', traces, layout);
+        
+        const myPlot = document.getElementById('plotly-div');
+        myPlot.on('plotly_hover', function(data) {
+            if(data.points.length > 0) {
+                const hoveredRunIdx = data.points[0].data.customdata[0];
+                if (hoveredRunIdx === 'gt' || hoveredRunIdx === 'total') return;
+                
+                const update = { opacity: [] };
+                for(let i=0; i<myPlot.data.length; i++) {
+                    const tr = myPlot.data[i];
+                    const trRunIdx = tr.customdata[0];
+                    if (trRunIdx === hoveredRunIdx || trRunIdx === 'gt' || trRunIdx === 'total') {
+                        update.opacity.push(tr.name.includes('sample') ? 0.3 : 1.0);
+                    } else {
+                        update.opacity.push(0.03); // Fade out other runs
+                    }
+                }
+                Plotly.restyle(myPlot, update);
+            }
+        });
+        
+        myPlot.on('plotly_unhover', function(data) {
+            const update = { opacity: [] };
+            for(let i=0; i<myPlot.data.length; i++) {
+                const tr = myPlot.data[i];
+                update.opacity.push(tr.name.includes('sample') ? 0.2 : 1.0);
+            }
+            Plotly.restyle(myPlot, update);
+        });
+    </script>
+    {% endif %}
+</body>
+</html>

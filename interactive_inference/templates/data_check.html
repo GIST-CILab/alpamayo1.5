@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Data Check - Alpamayo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden">
+    
+    <!-- Sidebar (VSCode Explorer Style) -->
+    <div class="w-80 bg-white border-r border-gray-200 flex flex-col h-full shadow-sm z-10 flex-shrink-0">
+        <div class="p-4 border-b border-gray-200 bg-gray-50">
+            <h2 class="font-bold text-xs text-gray-500 tracking-wider">EXPLORER: DEMO CLIPS</h2>
+        </div>
+        <div class="overflow-y-auto flex-grow p-2 space-y-1">
+            {% if clips %}
+                {% for clip in clips %}
+                <div class="p-2 rounded hover:bg-blue-100 cursor-pointer transition-colors" onclick="selectClip('{{ clip.clip_id }}', {{ clip.t0_relative }})">
+                    <div class="font-mono text-[11px] text-blue-700 truncate" title="{{ clip.clip_id }}">{{ clip.clip_id }}</div>
+                    <div class="text-xs font-semibold text-gray-700 mt-1 truncate">{{ clip.nav_text }}</div>
+                    <div class="text-[10px] text-gray-500 flex justify-between mt-0.5">
+                        <span>{{ clip.distance_m }}m</span>
+                        <span>t0: {{ clip.t0_relative }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-xs text-gray-400 italic p-4 text-center">No clips found</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 overflow-y-auto p-8 bg-gray-50">
+        <div class="max-w-[1000px] mx-auto bg-white p-8 rounded shadow-sm border border-gray-200">
+            <div class="mb-4">
+                <a href="/" class="text-blue-500 hover:underline text-sm">&larr; Back to Home</a>
+            </div>
+            <h1 class="text-2xl font-bold mb-6 text-gray-800">Data Check</h1>
+            
+            <form method="post" action="/data_check" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Clip ID</label>
+                    <input type="text" name="clip_id" value="{{ clip_id | default('ea7bbd31-b7a5-4972-8dbd-7089e6b53de4') }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">t0_relative (microsec)</label>
+                    <input type="number" name="t0_relative" value="{{ t0_relative | default(4000000) }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border" required>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Duration (seconds)</label>
+                <input type="number" step="0.5" name="duration_s" value="{{ duration_s | default(5.0) }}" class="mt-1 block w-full rounded border-gray-300 shadow-sm p-2 border" required>
+            </div>
+            <button type="submit" id="submitBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center justify-center w-48">
+                <span id="btnText">Check Data</span>
+                <svg id="loadingIcon" class="animate-spin ml-2 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+        </form>
+
+        <script>
+            document.querySelector('form').addEventListener('submit', function() {
+                const btn = document.getElementById('submitBtn');
+                const btnText = document.getElementById('btnText');
+                const loadingIcon = document.getElementById('loadingIcon');
+                btn.disabled = true;
+                btn.classList.add('opacity-75', 'cursor-not-allowed');
+                btnText.textContent = 'Extracting...';
+                loadingIcon.classList.remove('hidden');
+            });
+        </script>
+
+        <div id="result">
+            {% if error %}
+            <div class="mt-6 p-4 bg-red-100 text-red-700 rounded border border-red-300 break-words">
+                <strong>Error:</strong> {{ error }}
+            </div>
+            {% endif %}
+
+            <div class="mt-4 p-3 bg-yellow-50 text-yellow-800 text-sm rounded border border-yellow-200">
+                <strong>💡 참고:</strong> 처음 조회하는 Clip ID의 경우 원본 데이터(수 GB)를 서버로 다운로드하느라 수 분이 걸려 <strong>"오류(Connection Error)"</strong>가 발생할 수 있습니다. 이는 다운로드가 진행 중인 상태이므로 약 1~2분 뒤 다시 Check Data를 누르시면 정상적으로 로드됩니다!
+            </div>
+
+            {% if frames and num_frames > 0 %}
+            <div class="mt-8 border border-gray-200 rounded p-4 bg-gray-50 text-center">
+                <p class="mb-4 text-sm font-semibold text-gray-700" id="timeLabel">Time: 0.0s (Frame 0/{{num_frames - 1}})</p>
+                
+                <div class="grid grid-cols-3 gap-2 mb-4 w-fit mx-auto">
+                    <!-- Row 1: Front Tele in middle -->
+                    <div class="col-start-2">
+                        <p class="text-xs font-bold mb-1 text-center">Front Tele</p>
+                        <img id="cam-front_tele" src="{{ frames[0]['cameras']['front_tele'] }}" class="w-full h-auto rounded border" alt="Front Tele">
+                    </div>
+                    
+                    <!-- Row 2: Cross Left, Front Wide, Cross Right -->
+                    <div class="col-start-1">
+                        <p class="text-xs font-bold mb-1 text-center">Cross Left</p>
+                        <img id="cam-cross_left" src="{{ frames[0]['cameras']['cross_left'] }}" class="w-full h-auto rounded border" alt="Cross Left">
+                    </div>
+                    <div class="col-start-2">
+                        <p class="text-xs font-bold mb-1 text-center">Front Wide</p>
+                        <img id="cam-front_wide" src="{{ frames[0]['cameras']['front_wide'] }}" class="w-full h-auto rounded border" alt="Front Wide">
+                    </div>
+                    <div class="col-start-3">
+                        <p class="text-xs font-bold mb-1 text-center">Cross Right</p>
+                        <img id="cam-cross_right" src="{{ frames[0]['cameras']['cross_right'] }}" class="w-full h-auto rounded border" alt="Cross Right">
+                    </div>
+
+                    <!-- Row 3: Rear Left, Rear Tele, Rear Right -->
+                    <div class="col-start-1">
+                        <p class="text-xs font-bold mb-1 text-center">Rear Left</p>
+                        <img id="cam-rear_left" src="{{ frames[0]['cameras']['rear_left'] }}" class="w-full h-auto rounded border" alt="Rear Left">
+                    </div>
+                    <div class="col-start-2">
+                        <p class="text-xs font-bold mb-1 text-center">Rear Tele</p>
+                        <img id="cam-rear_tele" src="{{ frames[0]['cameras']['rear_tele'] }}" class="w-full h-auto rounded border" alt="Rear Tele">
+                    </div>
+                    <div class="col-start-3">
+                        <p class="text-xs font-bold mb-1 text-center">Rear Right</p>
+                        <img id="cam-rear_right" src="{{ frames[0]['cameras']['rear_right'] }}" class="w-full h-auto rounded border" alt="Rear Right">
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4 mt-4">
+                    <button id="playBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-opacity-80 text-sm font-bold w-24 focus:outline-none">Pause</button>
+                    <input type="range" id="frameSlider" min="0" max="{{ num_frames - 1 }}" value="0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+                
+                <script id="frameData" type="application/json">
+                    {{ frames | tojson | safe }}
+                </script>
+                
+                <script>
+                    const slider = document.getElementById('frameSlider');
+                    const timeLabel = document.getElementById('timeLabel');
+                    const dataScript = document.getElementById('frameData');
+                    const frames = JSON.parse(dataScript.textContent);
+                    
+                    const camFrontWide = document.getElementById('cam-front_wide');
+                    const camFrontTele = document.getElementById('cam-front_tele');
+                    const camCrossLeft = document.getElementById('cam-cross_left');
+                    const camCrossRight = document.getElementById('cam-cross_right');
+                    const camRearLeft = document.getElementById('cam-rear_left');
+                    const camRearTele = document.getElementById('cam-rear_tele');
+                    const camRearRight = document.getElementById('cam-rear_right');
+                    
+                    const playBtn = document.getElementById('playBtn');
+                    let playInterval = null;
+                    let isPlaying = true;
+                    
+                    // Preload images to ensure smooth playback without network stutter
+                    const preloadedImages = {};
+                    frames.forEach(frame => {
+                        ['front_wide', 'front_tele', 'cross_left', 'cross_right', 'rear_left', 'rear_tele', 'rear_right'].forEach(cam => {
+                            if (frame.cameras[cam]) {
+                                const img = new Image();
+                                img.src = frame.cameras[cam];
+                                preloadedImages[frame.cameras[cam]] = img;
+                            }
+                        });
+                    });
+                    
+                    function updateFrame(idx) {
+                        slider.value = idx;
+                        const frame = frames[idx];
+                        timeLabel.textContent = `Time: ${(idx * 0.1).toFixed(1)}s (Frame ${idx}/${frames.length - 1})`;
+                        
+                        if (frame.cameras.front_wide) camFrontWide.src = frame.cameras.front_wide;
+                        if (frame.cameras.front_tele) camFrontTele.src = frame.cameras.front_tele;
+                        if (frame.cameras.cross_left) camCrossLeft.src = frame.cameras.cross_left;
+                        if (frame.cameras.cross_right) camCrossRight.src = frame.cameras.cross_right;
+                        if (frame.cameras.rear_left && camRearLeft) camRearLeft.src = frame.cameras.rear_left;
+                        if (frame.cameras.rear_tele && camRearTele) camRearTele.src = frame.cameras.rear_tele;
+                        if (frame.cameras.rear_right && camRearRight) camRearRight.src = frame.cameras.rear_right;
+                    }
+
+                    slider.addEventListener('input', function() {
+                        updateFrame(this.value);
+                        if (isPlaying) togglePlay(); // pause on manual scrub
+                    });
+                    
+                    function togglePlay() {
+                        if (isPlaying) {
+                            clearInterval(playInterval);
+                            playBtn.textContent = 'Play';
+                            playBtn.classList.replace('bg-red-500', 'bg-green-500');
+                        } else {
+                            playBtn.textContent = 'Pause';
+                            playBtn.classList.replace('bg-green-500', 'bg-red-500');
+                            playInterval = setInterval(() => {
+                                let nextIdx = parseInt(slider.value) + 1;
+                                if (nextIdx >= frames.length) nextIdx = 0;
+                                updateFrame(nextIdx);
+                            }, 100); // 10 fps playback
+                        }
+                        isPlaying = !isPlaying;
+                    }
+                    
+                    playBtn.addEventListener('click', togglePlay);
+                    
+                    // Start auto-play on load
+                    isPlaying = false; // set to false initially so togglePlay turns it ON
+                    togglePlay();
+                </script>
+            </div>
+            {% elif image_b64 %}
+            <div class="mt-8 border border-gray-200 rounded p-2">
+                <img src="data:image/jpeg;base64,{{ image_b64 }}" class="w-full h-auto" alt="Front Camera Frame">
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <script>
+        function selectClip(clipId, t0Relative) {
+            document.querySelector('input[name="clip_id"]').value = clipId;
+            document.querySelector('input[name="t0_relative"]').value = t0Relative;
+            // Provide a small visual feedback
+            const btn = document.getElementById('submitBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = 'Selected! Ready to check';
+            setTimeout(() => { btn.innerHTML = originalText; }, 1500);
+        }
+    </script>
+</body>
+</html>

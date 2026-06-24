@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clip Viewer — Alpamayo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #22263a;
+            --border: #2e3150;
+            --accent: #6366f1;
+            --accent2: #818cf8;
+            --t0-color: #f59e0b;
+            --text: #e2e8f0;
+            --text-dim: #64748b;
+            --text-mid: #94a3b8;
+            --green: #10b981;
+            --red: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ── */
+        #sidebar {
+            width: 280px;
+            flex-shrink: 0;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #sidebar-header .logo {
+            width: 28px; height: 28px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            border-radius: 7px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+        }
+        #sidebar-header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+        #sidebar-header a {
+            margin-left: auto; font-size: 11px; color: var(--accent2);
+            text-decoration: none;
+        }
+        #sidebar-header a:hover { text-decoration: underline; }
+
+        #clip-list { overflow-y: auto; flex: 1; padding: 8px; }
+        .clip-item {
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.15s;
+            margin-bottom: 4px;
+        }
+        .clip-item:hover { background: var(--surface2); border-color: var(--border); }
+        .clip-item.active { background: rgba(99,102,241,0.15); border-color: var(--accent); }
+        .clip-item .clip-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9.5px; color: var(--accent2);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .clip-item .clip-nav { font-size: 12px; font-weight: 600; margin-top: 4px; color: var(--text); }
+        .clip-item .clip-meta {
+            font-size: 10px; color: var(--text-dim); margin-top: 3px;
+            display: flex; gap: 8px;
+        }
+
+        /* ── Main ── */
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* top bar */
+        #topbar {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+        #topbar .info-block { display: flex; flex-direction: column; gap: 2px; }
+        #topbar .info-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+        #topbar .info-val { font-size: 13px; font-weight: 500; }
+        #topbar .info-val.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+        #topbar .sep { width: 1px; height: 32px; background: var(--border); }
+
+        #duration-ctrl { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+        #duration-ctrl label { font-size: 12px; color: var(--text-mid); }
+        #duration-ctrl input {
+            width: 64px; padding: 4px 8px; border-radius: 6px;
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); font-size: 12px; text-align: center;
+        }
+        #load-btn {
+            padding: 6px 16px; border-radius: 7px;
+            background: var(--accent); color: #fff;
+            border: none; font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: opacity 0.15s;
+            display: flex; align-items: center; gap: 6px;
+        }
+        #load-btn:hover { opacity: 0.85; }
+        #load-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* camera grid */
+        #camera-area {
+            flex: 1;
+            overflow: hidden;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        #camera-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 6px;
+            flex: 1;
+            min-height: 0;
+        }
+        .cam-cell {
+            position: relative;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .cam-cell .cam-label {
+            position: absolute; top: 6px; left: 8px;
+            background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(4px);
+            font-size: 10px; font-weight: 600;
+            padding: 2px 7px; border-radius: 4px;
+            color: #fff; z-index: 2;
+            letter-spacing: 0.04em;
+        }
+        .cam-cell img {
+            width: 100%; height: 100%;
+            object-fit: cover;
+        }
+        /* placeholder */
+        .cam-cell .placeholder {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-dim); font-size: 11px;
+        }
+
+        /* front tele: center column, row 1 */
+        .cell-front-tele   { grid-column: 2; grid-row: 1; }
+        /* row 2 */
+        .cell-cross-left   { grid-column: 1; grid-row: 2; }
+        .cell-front-wide   { grid-column: 2; grid-row: 2; }
+        .cell-cross-right  { grid-column: 3; grid-row: 2; }
+        /* row 3 */
+        .cell-rear-left    { grid-column: 1; grid-row: 3; }
+        .cell-rear-tele    { grid-column: 2; grid-row: 3; }
+        .cell-rear-right   { grid-column: 3; grid-row: 3; }
+
+        /* 3 rows */
+        #camera-grid {
+            grid-template-rows: 1fr 1fr 1fr;
+        }
+
+        /* ── Timeline ── */
+        #timeline-area {
+            flex-shrink: 0;
+            padding: 0 16px 14px;
+        }
+        #timeline-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        #time-label { font-size: 13px; font-weight: 500; }
+        #t0-label {
+            font-size: 11px;
+            background: rgba(245,158,11,0.15);
+            border: 1px solid var(--t0-color);
+            color: var(--t0-color);
+            padding: 2px 8px; border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        #slider-wrap {
+            position: relative;
+            height: 32px;
+            display: flex; align-items: center;
+        }
+        #frameSlider {
+            width: 100%;
+            -webkit-appearance: none;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--surface2);
+            outline: none;
+            cursor: pointer;
+        }
+        #frameSlider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.3);
+        }
+        /* t0 marker */
+        #t0-marker {
+            position: absolute;
+            top: 50%; transform: translate(-50%, -50%);
+            width: 3px; height: 22px;
+            background: var(--t0-color);
+            border-radius: 2px;
+            pointer-events: none;
+            display: none;
+        }
+        #t0-marker::after {
+            content: 't₀';
+            position: absolute;
+            top: -18px; left: 50%; transform: translateX(-50%);
+            font-size: 9px; color: var(--t0-color);
+            white-space: nowrap; font-weight: 700;
+        }
+
+        #controls {
+            display: flex; align-items: center; gap: 10px; margin-top: 10px;
+        }
+        #playBtn {
+            width: 36px; height: 36px; border-radius: 8px;
+            background: var(--accent); border: none; cursor: pointer;
+            color: #fff; font-size: 14px;
+            display: flex; align-items: center; justify-content: center;
+            transition: opacity 0.15s;
+        }
+        #playBtn:hover { opacity: 0.8; }
+        #speed-select {
+            padding: 4px 8px; border-radius: 6px;
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); font-size: 12px; cursor: pointer;
+        }
+        #frame-counter { font-size: 11px; color: var(--text-dim); margin-left: auto;
+            font-family: 'JetBrains Mono', monospace; }
+
+        /* ── Overlay ── */
+        #overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 16px;
+        }
+        #overlay.active { display: flex; }
+        #overlay .spinner {
+            width: 44px; height: 44px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #overlay p { font-size: 14px; color: var(--text-mid); }
+
+        /* ── Empty state ── */
+        #empty-state {
+            flex: 1;
+            display: flex; align-items: center; justify-content: center;
+            flex-direction: column; gap: 12px; color: var(--text-dim);
+        }
+        #empty-state .icon { font-size: 40px; }
+        #empty-state p { font-size: 14px; }
+
+        /* cot badge */
+        #cot-strip {
+            display: none;
+            padding: 8px 16px;
+            background: rgba(99,102,241,0.08);
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-mid);
+            flex-shrink: 0;
+        }
+        #cot-strip strong { color: var(--accent2); margin-right: 6px; }
+    </style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="overlay">
+    <div class="spinner"></div>
+    <p id="overlay-msg">Loading frames…</p>
+</div>
+
+<!-- Sidebar -->
+<div id="sidebar">
+    <div id="sidebar-header">
+        <div class="logo">🎬</div>
+        <h1>Clip Viewer</h1>
+        <a href="/">← Home</a>
+    </div>
+    <div id="clip-list">
+        {% for clip in clips %}
+        <div class="clip-item" id="clipitem-{{ loop.index }}"
+             onclick="selectClip({{ loop.index }}, '{{ clip.clip_id }}', {{ clip.t0_relative }}, '{{ clip.nav_text }}', '{{ clip.nav_maneuver }}', {{ clip.distance_m }}, {{ (clip.t0_relative / 1e6) | round(2) }}, '{{ clip.cot }}')">
+            <div class="clip-id">{{ clip.clip_id }}</div>
+            <div class="clip-nav">{{ clip.nav_text }}</div>
+            <div class="clip-meta">
+                <span>{{ clip.distance_m }}m</span>
+                <span>t0: {{ (clip.t0_relative / 1e6) | round(1) }}s</span>
+                <span>{{ clip.nav_maneuver }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Main -->
+<div id="main">
+    <!-- Top bar -->
+    <div id="topbar">
+        <div class="info-block">
+            <span class="info-label">Clip ID</span>
+            <input type="text" id="manual-clip-id" class="info-val mono" placeholder="Enter Clip ID manually..." style="width:300px; padding:4px 8px; border-radius:6px; background:var(--surface2); border:1px solid var(--border); color:var(--text); font-family:'JetBrains Mono', monospace; font-size:11px; outline:none;" oninput="onManualClipIdInput()">
+        </div>
+        <div class="sep"></div>
+        <div class="info-block">
+            <span class="info-label">Nav Instruction</span>
+            <span class="info-val" id="info-nav">—</span>
+        </div>
+        <div class="sep"></div>
+        <div class="info-block">
+            <span class="info-label">t₀</span>
+            <span class="info-val mono" id="info-t0">—</span>
+        </div>
+        <div class="info-block">
+            <span class="info-label">Maneuver</span>
+            <span class="info-val" id="info-maneuver">—</span>
+        </div>
+
+        <div class="duration-ctrl" id="duration-ctrl" style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+            <label for="startInput">Start (s)</label>
+            <input type="number" id="startInput" value="0" min="0" step="0.5" style="width:64px;padding:4px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px;text-align:center;">
+            <label for="durationInput">Duration (s)</label>
+            <input type="number" id="durationInput" value="0" min="0" max="60" step="0.5" title="0 means entire clip length" style="width:64px;padding:4px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px;text-align:center;">
+            <button id="load-btn" onclick="loadClip()" disabled>
+                <span id="load-btn-text">Load</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- CoT strip -->
+    <div id="cot-strip">
+        <strong>CoT:</strong><span id="cot-text"></span>
+    </div>
+
+    <!-- Camera area or empty state -->
+    <div id="camera-area" style="display:none; align-items: center; justify-content: center;">
+        <div class="cam-cell" style="width: 400px; height: auto; border: none; background: transparent;">
+            <video id="vid-front_wide" controls autoplay loop style="width: 100%; border-radius: 8px; border: 1px solid var(--border);"></video>
+        </div>
+    </div>
+
+    <div id="empty-state">
+        <div class="icon">🎬</div>
+        <p>사이드바에서 클립을 선택하고 <strong>Load</strong>를 누르세요</p>
+    </div>
+</div>
+
+
+<script>
+    const CAMERAS = ['front_wide']; // Only fetch and display front_wide
+
+    let currentClip = null;
+    let selectedIdx = null, selectedClipId = null, selectedT0Relative = null;
+    let selectedNavText = null, selectedManeuver = null, selectedDist = null;
+    let selectedT0Sec = null, selectedCot = null;
+
+    function selectClip(idx, clipId, t0Relative, navText, maneuver, dist, t0Sec, cot) {
+        if (selectedIdx !== null) {
+            document.getElementById('clipitem-' + selectedIdx).classList.remove('active');
+        }
+        selectedIdx = idx;
+        selectedClipId = clipId;
+        selectedT0Relative = t0Relative;
+        selectedNavText = navText;
+        selectedManeuver = maneuver;
+        selectedDist = dist;
+        selectedT0Sec = t0Sec;
+        selectedCot = cot;
+
+        document.getElementById('clipitem-' + idx).classList.add('active');
+
+        // Update topbar
+        document.getElementById('manual-clip-id').value = clipId;
+        document.getElementById('info-nav').textContent = navText;
+        document.getElementById('info-t0').textContent = t0Sec.toFixed(2) + 's';
+        document.getElementById('info-maneuver').textContent = maneuver;
+
+        // Default to entire clip (0 means auto-detect full length)
+        document.getElementById('startInput').value = 0;
+        document.getElementById('durationInput').value = 0;
+        document.getElementById('load-btn').disabled = false;
+    }
+
+    function onManualClipIdInput() {
+        const val = document.getElementById('manual-clip-id').value.trim();
+        if (val) {
+            selectedClipId = val;
+            document.getElementById('load-btn').disabled = false;
+            // Clear other info since it's manual
+            document.getElementById('info-nav').textContent = '—';
+            document.getElementById('info-t0').textContent = '—';
+            document.getElementById('info-maneuver').textContent = '—';
+            // Unselect sidebar item
+            if (selectedIdx !== null) {
+                const el = document.getElementById('clipitem-' + selectedIdx);
+                if (el) el.classList.remove('active');
+                selectedIdx = null;
+            }
+        } else {
+            selectedClipId = null;
+            document.getElementById('load-btn').disabled = true;
+        }
+    }
+
+    async function loadClip() {
+        if (!selectedClipId) return;
+
+        const startSec = parseFloat(document.getElementById('startInput').value) || 0;
+        const durationSec = parseFloat(document.getElementById('durationInput').value) || 0;
+        const t0Relative_forRequest = Math.round(startSec * 1_000_000);
+
+        // Show overlay
+        showOverlay('Extracting & compiling MP4 video…');
+
+        try {
+            const res = await fetch('/api/data_check', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    clip_id: selectedClipId,
+                    t0_relative: t0Relative_forRequest,
+                    duration_s: durationSec,
+                    max_width: 400,
+                    quality: 85,
+                    delete_fullres: true,
+                    cameras: ["front_wide"],
+                    as_video: true
+                })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            
+            const vidUrl = data.video_urls["front_wide"];
+
+            document.getElementById('camera-area').style.display = 'flex';
+            document.getElementById('empty-state').style.display = 'none';
+            document.getElementById('vid-front_wide').src = vidUrl;
+
+            // CoT
+            document.getElementById('cot-text').textContent = selectedCot || '—';
+            document.getElementById('cot-strip').style.display = 'block';
+
+        } catch (e) {
+            alert('Error: ' + e.message);
+        } finally {
+            hideOverlay();
+        }
+    }
+
+    function showOverlay(msg) {
+        document.getElementById('overlay-msg').textContent = msg;
+        document.getElementById('overlay').classList.add('active');
+    }
+    function hideOverlay() {
+        document.getElementById('overlay').classList.remove('active');
+    }
+</script>
+</body>
+</html>
